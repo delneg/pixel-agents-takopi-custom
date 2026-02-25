@@ -7,8 +7,9 @@ import { buildDynamicCatalog } from '../office/layout/furnitureCatalog.js'
 import { setFloorSprites } from '../office/floorTiles.js'
 import { setWallSprites } from '../office/wallTiles.js'
 import { setCharacterTemplates } from '../office/sprites/spriteData.js'
-import { vscode } from '../vscodeApi.js'
+import { vscode, IS_WEBAPP } from '../vscodeApi.js'
 import { playDoneSound, setSoundEnabled } from '../notificationSound.js'
+import { loadAllAssetsClientSide } from '../assetLoaderClient.js'
 
 export interface SubagentCharacter {
   id: number
@@ -44,6 +45,7 @@ export interface ExtensionMessageState {
   subagentCharacters: SubagentCharacter[]
   layoutReady: boolean
   loadedAssets?: { catalog: FurnitureAsset[]; sprites: Record<string, string[][]> }
+  lastAnswers: Record<number, string>
 }
 
 function saveAgentSeats(os: OfficeState): void {
@@ -68,6 +70,7 @@ export function useExtensionMessages(
   const [subagentCharacters, setSubagentCharacters] = useState<SubagentCharacter[]>([])
   const [layoutReady, setLayoutReady] = useState(false)
   const [loadedAssets, setLoadedAssets] = useState<{ catalog: FurnitureAsset[]; sprites: Record<string, string[][]> } | undefined>()
+  const [lastAnswers, setLastAnswers] = useState<Record<number, string>>({})
 
   // Track whether initial layout has been loaded (ref to avoid re-render)
   const layoutReadyRef = useRef(false)
@@ -315,6 +318,10 @@ export function useExtensionMessages(
         // Remove sub-agent character
         os.removeSubagent(id, parentToolId)
         setSubagentCharacters((prev) => prev.filter((s) => !(s.parentAgentId === id && s.parentToolId === parentToolId)))
+      } else if (msg.type === 'agentAnswer') {
+        const id = msg.id as number
+        const text = msg.text as string
+        setLastAnswers((prev) => ({ ...prev, [id]: text }))
       } else if (msg.type === 'characterSpritesLoaded') {
         const characters = msg.characters as Array<{ down: string[][][]; up: string[][][]; right: string[][][] }>
         console.log(`[Webview] Received ${characters.length} pre-colored character sprites`)
@@ -344,9 +351,18 @@ export function useExtensionMessages(
       }
     }
     window.addEventListener('message', handler)
-    vscode.postMessage({ type: 'webviewReady' })
+
+    // In webapp mode, load character/floor/wall sprites client-side from PNGs
+    // (furniture assets are still sent from the server as JSON)
+    if (IS_WEBAPP) {
+      loadAllAssetsClientSide().then(() => {
+        vscode.postMessage({ type: 'webviewReady' })
+      })
+    } else {
+      vscode.postMessage({ type: 'webviewReady' })
+    }
     return () => window.removeEventListener('message', handler)
   }, [getOfficeState])
 
-  return { agents, selectedAgent, agentTools, agentStatuses, subagentTools, subagentCharacters, layoutReady, loadedAssets }
+  return { agents, selectedAgent, agentTools, agentStatuses, subagentTools, subagentCharacters, layoutReady, loadedAssets, lastAnswers }
 }

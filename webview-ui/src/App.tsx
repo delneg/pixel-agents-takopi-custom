@@ -6,7 +6,7 @@ import { EditorToolbar } from './office/editor/EditorToolbar.js'
 import { EditorState } from './office/editor/editorState.js'
 import { EditTool } from './office/types.js'
 import { isRotatable } from './office/layout/furnitureCatalog.js'
-import { vscode } from './vscodeApi.js'
+import { vscode, IS_WEBAPP } from './vscodeApi.js'
 import { useExtensionMessages } from './hooks/useExtensionMessages.js'
 import { PULSE_ANIMATION_DURATION_SEC } from './constants.js'
 import { useEditorActions } from './hooks/useEditorActions.js'
@@ -14,6 +14,7 @@ import { useEditorKeyboard } from './hooks/useEditorKeyboard.js'
 import { ZoomControls } from './components/ZoomControls.js'
 import { BottomToolbar } from './components/BottomToolbar.js'
 import { DebugView } from './components/DebugView.js'
+import { ChatInput } from './components/ChatInput.js'
 
 // Game state lives outside React — updated imperatively by message handlers
 const officeStateRef = { current: null as OfficeState | null }
@@ -121,7 +122,7 @@ function App() {
 
   const isEditDirty = useCallback(() => editor.isEditMode && editor.isDirty, [editor.isEditMode, editor.isDirty])
 
-  const { agents, selectedAgent, agentTools, agentStatuses, subagentTools, subagentCharacters, layoutReady, loadedAssets } = useExtensionMessages(getOfficeState, editor.setLastSavedLayout, isEditDirty)
+  const { agents, selectedAgent, agentTools, agentStatuses, subagentTools, subagentCharacters, layoutReady, loadedAssets, lastAnswers } = useExtensionMessages(getOfficeState, editor.setLastSavedLayout, isEditDirty)
 
   const [isDebugMode, setIsDebugMode] = useState(false)
 
@@ -294,6 +295,14 @@ function App() {
         panRef={editor.panRef}
         onCloseAgent={handleCloseAgent}
       />
+
+      {IS_WEBAPP && !editor.isEditMode && (
+        <ChatInput
+          selectedAgent={selectedAgent}
+          agentStatuses={agentStatuses}
+          lastAnswers={lastAnswers}
+        />
+      )}
 
       {isDebugMode && (
         <DebugView

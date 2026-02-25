@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { vscode } from '../vscodeApi.js'
+import { vscode, IS_WEBAPP } from '../vscodeApi.js'
 import { isSoundEnabled, setSoundEnabled } from '../notificationSound.js'
 
 interface SettingsModalProps {
@@ -92,23 +92,45 @@ export function SettingsModal({ isOpen, onClose, isDebugMode, onToggleDebugMode 
           </button>
         </div>
         {/* Menu items */}
+        {!IS_WEBAPP && (
+          <button
+            onClick={() => {
+              vscode.postMessage({ type: 'openSessionsFolder' })
+              onClose()
+            }}
+            onMouseEnter={() => setHovered('sessions')}
+            onMouseLeave={() => setHovered(null)}
+            style={{
+              ...menuItemBase,
+              background: hovered === 'sessions' ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
+            }}
+          >
+            Open Sessions Folder
+          </button>
+        )}
         <button
           onClick={() => {
-            vscode.postMessage({ type: 'openSessionsFolder' })
-            onClose()
-          }}
-          onMouseEnter={() => setHovered('sessions')}
-          onMouseLeave={() => setHovered(null)}
-          style={{
-            ...menuItemBase,
-            background: hovered === 'sessions' ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
-          }}
-        >
-          Open Sessions Folder
-        </button>
-        <button
-          onClick={() => {
-            vscode.postMessage({ type: 'exportLayout' })
+            if (IS_WEBAPP) {
+              // In webapp mode, request layout data for client-side download
+              // Listen for the response
+              const downloadHandler = (e: MessageEvent) => {
+                const d = e.data
+                if (d.type === 'exportLayoutData' && d.layout) {
+                  window.removeEventListener('message', downloadHandler)
+                  const blob = new Blob([JSON.stringify(d.layout, null, 2)], { type: 'application/json' })
+                  const url = URL.createObjectURL(blob)
+                  const a = document.createElement('a')
+                  a.href = url
+                  a.download = 'pixel-agents-layout.json'
+                  a.click()
+                  URL.revokeObjectURL(url)
+                }
+              }
+              window.addEventListener('message', downloadHandler)
+              vscode.postMessage({ type: 'exportLayout' })
+            } else {
+              vscode.postMessage({ type: 'exportLayout' })
+            }
             onClose()
           }}
           onMouseEnter={() => setHovered('export')}
@@ -122,7 +144,33 @@ export function SettingsModal({ isOpen, onClose, isDebugMode, onToggleDebugMode 
         </button>
         <button
           onClick={() => {
-            vscode.postMessage({ type: 'importLayout' })
+            if (IS_WEBAPP) {
+              // In webapp mode, use a file input for import
+              const input = document.createElement('input')
+              input.type = 'file'
+              input.accept = '.json'
+              input.onchange = () => {
+                const file = input.files?.[0]
+                if (!file) return
+                const reader = new FileReader()
+                reader.onload = () => {
+                  try {
+                    const layout = JSON.parse(reader.result as string)
+                    if (layout.version === 1 && layout.tiles) {
+                      vscode.postMessage({ type: 'importLayout', layout })
+                    } else {
+                      console.error('Invalid layout file')
+                    }
+                  } catch (err) {
+                    console.error('Failed to parse layout file:', err)
+                  }
+                }
+                reader.readAsText(file)
+              }
+              input.click()
+            } else {
+              vscode.postMessage({ type: 'importLayout' })
+            }
             onClose()
           }}
           onMouseEnter={() => setHovered('import')}
