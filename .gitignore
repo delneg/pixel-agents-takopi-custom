@@ -7,3 +7,7 @@ node_modules
 /logs
 /sprites-export
 .env
+__pycache__/
+*.egg-info/
+.playwright-mcp/
+uv.lock
