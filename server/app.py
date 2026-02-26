@@ -59,8 +59,8 @@ async def lifespan(app: FastAPI):
     """Application lifespan — initialize shared state."""
     global agent_manager, telegram_bridge, furniture_data
 
-    # Determine CWD for Claude — use current working directory
-    cwd = Path.cwd().resolve()
+    # Determine CWD for Claude — env var override or current working directory
+    cwd = Path(os.environ.get("PIXEL_AGENTS_CWD", ".")).resolve()
     logger.info("Project CWD: %s", cwd)
 
     agent_manager = AgentManager(broadcast, cwd)

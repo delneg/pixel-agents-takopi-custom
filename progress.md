@@ -228,6 +228,6 @@ TELEGRAM_BOT_TOKEN=... TELEGRAM_CHAT_ID=... uv run uvicorn server.app:app --host
 
 1. ~~**No furniture assets**~~ — **RESOLVED.** New `default-layout.json` uses only the 8 hardcoded furniture types (desk, bookshelf, plant, cooler, whiteboard, chair, pc, lamp). `floors.png` generated with 7 grayscale patterns. Generator scripts: `scripts/generate-floors.py`, `scripts/generate-default-layout.py`. If the tileset pipeline is run later, the dynamic catalog overrides these built-in sprites.
 2. **bash/mcp progress events** — takopi drops `StreamEventMessage` silently, so the permission timer can't restart on long-running Bash output (unlike the extension).
-3. **CWD** — Server uses the directory you run `uvicorn` from as Claude's working directory.
+3. **CWD** — Set `PIXEL_AGENTS_CWD=/path/to/project` to point agents at a specific directory (inherits its `.claude/` config). Defaults to the directory where `uvicorn` is launched.
 4. **Server must be launched outside Claude Code** — `CLAUDECODE` env var blocks nested sessions. Run the server in a regular terminal.
 5. **`PIXEL_AGENTS_SKIP_PERMISSIONS`** — Defaults to `"1"` (skip permissions). Set to `"0"` to enable permission prompts.
