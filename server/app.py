@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .agent_manager import AgentManager
 from .asset_loader import load_furniture_assets
-from .layout_store import ensure_layout, write_layout, read_layout
+from .layout_store import ensure_layout, write_layout, read_layout, watch_layout_file
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -70,8 +70,11 @@ async def lifespan(app: FastAPI):
     # Run with a background task group for agent runners
     async with anyio.create_task_group() as tg:
         agent_manager.set_task_group(tg)
+        # Watch layout file for external changes
+        tg.start_soon(watch_layout_file, broadcast)
         yield
         # Cleanup
+        tg.cancel_scope.cancel()
         agent_manager = None
 
 

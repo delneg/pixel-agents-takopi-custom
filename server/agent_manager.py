@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import random
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -21,7 +22,7 @@ from takopi.utils.paths import set_run_base_dir, reset_run_base_dir
 
 from .event_mapper import map_event, needs_permission_timer, cancels_permission_timer
 from .timer_manager import TimerManager
-from .constants import TOOL_DONE_DELAY_S, EXEMPT_TOOLS
+from .constants import TOOL_DONE_DELAY_S
 
 logger = logging.getLogger(__name__)
 
@@ -36,10 +37,21 @@ class AgentSession:
     id: int
     resume_token: ResumeToken | None = None
     active_tools: dict[str, str] = field(default_factory=dict)  # tool_id -> status
+    active_tool_names: dict[str, str] = field(default_factory=dict)  # tool_id -> tool_name
+    # Sub-agent tracking: parentToolId -> {subToolId -> toolName}
+    active_subagent_tool_names: dict[str, dict[str, str]] = field(default_factory=dict)
     is_running: bool = False
+    permission_sent: bool = False
     palette: int = 0
     hue_shift: int = 0
     seat_id: str | None = None
+
+    def clear_activity(self) -> None:
+        """Clear all tool tracking state."""
+        self.active_tools.clear()
+        self.active_tool_names.clear()
+        self.active_subagent_tool_names.clear()
+        self.permission_sent = False
 
 
 class AgentManager:
@@ -117,7 +129,7 @@ class AgentManager:
             return
 
         session.is_running = True
-        session.active_tools.clear()
+        session.clear_activity()
 
         # Clear previous waiting state
         await self._broadcast({
@@ -138,7 +150,8 @@ class AgentManager:
         if session is None:
             return
 
-        runner = ClaudeRunner(dangerously_skip_permissions=True)
+        skip_permissions = os.environ.get("PIXEL_AGENTS_SKIP_PERMISSIONS", "1") != "0"
+        runner = ClaudeRunner(dangerously_skip_permissions=skip_permissions)
         token = set_run_base_dir(self._cwd)
 
         try:
@@ -154,16 +167,42 @@ class AgentManager:
                 # Map event to pixel-agents messages
                 messages = map_event(event, agent_id)
 
-                # Track active tools
+                # Track active tools and sub-agent tools
                 if isinstance(event, ActionEvent):
-                    if event.phase == "started" and not event.action.detail.get("parent_tool_use_id"):
-                        session.active_tools[event.action.id] = event.action.title
-                    elif event.phase == "completed" and event.action.id in session.active_tools:
-                        del session.active_tools[event.action.id]
+                    detail = event.action.detail
+                    parent = detail.get("parent_tool_use_id")
+                    tool_name = detail.get("name", "")
 
-                # Start permission timer for non-exempt tools
+                    if event.phase == "started":
+                        if parent:
+                            # Sub-agent tool — track under parent
+                            sub_names = session.active_subagent_tool_names.setdefault(parent, {})
+                            sub_names[event.action.id] = tool_name
+                        else:
+                            # Parent-level tool
+                            session.active_tools[event.action.id] = event.action.title
+                            session.active_tool_names[event.action.id] = tool_name
+
+                    elif event.phase == "completed":
+                        if parent:
+                            # Sub-agent tool done
+                            sub_names = session.active_subagent_tool_names.get(parent)
+                            if sub_names:
+                                sub_names.pop(event.action.id, None)
+                        elif event.action.kind == "subagent":
+                            # Task tool completed — clear its sub-agent tracking
+                            session.active_subagent_tool_names.pop(event.action.id, None)
+                            session.active_tools.pop(event.action.id, None)
+                            session.active_tool_names.pop(event.action.id, None)
+                        else:
+                            session.active_tools.pop(event.action.id, None)
+                            session.active_tool_names.pop(event.action.id, None)
+
+                # Start permission timer for non-exempt tools (parent or sub-agent)
                 if needs_permission_timer(event) and self._tg is not None:
-                    await self._timers.start_permission_timer(agent_id, self._tg)
+                    await self._timers.start_permission_timer(
+                        agent_id, self._tg, session,
+                    )
 
                 # Apply tool-done delay to prevent flicker
                 if isinstance(event, ActionEvent) and event.phase == "completed":
@@ -177,12 +216,12 @@ class AgentManager:
                 # Mark completed
                 if isinstance(event, CompletedEvent):
                     session.is_running = False
-                    session.active_tools.clear()
+                    session.clear_activity()
 
         except Exception:
             logger.exception("Error running agent %d", agent_id)
             session.is_running = False
-            session.active_tools.clear()
+            session.clear_activity()
             # Notify waiting state on error
             await self._broadcast({
                 "type": "agentToolsClear",

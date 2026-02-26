@@ -90,16 +90,15 @@ def map_event(event: TakopiEvent, agent_id: int) -> list[dict[str, Any]]:
 
 
 def needs_permission_timer(event: TakopiEvent) -> bool:
-    """Check if this event should trigger a permission timer start."""
+    """Check if this event should trigger a permission timer start.
+
+    Fires for non-exempt tools at both parent and sub-agent level.
+    """
     if not isinstance(event, ActionEvent):
         return False
     if event.phase != "started":
         return False
-    detail = event.action.detail
-    parent = detail.get("parent_tool_use_id")
-    if parent:
-        return False
-    return not _is_exempt_tool(detail)
+    return not _is_exempt_tool(event.action.detail)
 
 
 def cancels_permission_timer(event: TakopiEvent) -> bool:
