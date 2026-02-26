@@ -19,3 +19,14 @@ PNG_ALPHA_THRESHOLD = 128
 
 # Tools exempt from permission timer
 EXEMPT_TOOLS = frozenset({"Task", "AskUserQuestion"})
+
+# Telegram
+TELEGRAM_MAX_MESSAGE_LENGTH = 4096
+TELEGRAM_EMOJI_CREATED = "\U0001f7e2"   # 🟢
+TELEGRAM_EMOJI_CLOSED = "\U0001f534"    # 🔴
+TELEGRAM_EMOJI_ANSWER = "\U0001f4ac"    # 💬
+TELEGRAM_EMOJI_PERMISSION = "\U0001f6a8"  # 🚨
+TELEGRAM_EMOJI_ACTIVE = "\u26a1"        # ⚡
+TELEGRAM_EMOJI_WAITING = "\u23f3"       # ⏳
+TELEGRAM_EMOJI_TOOL = "\U0001f527"      # 🔧
+TELEGRAM_EMOJI_TOOL_DONE = "\u2705"     # ✅

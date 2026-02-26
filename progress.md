@@ -1,6 +1,6 @@
 # Pixel Agents Webapp — Implementation Progress
 
-## Overall Status: Steps 1–8 DONE. Step 9 deferred to Phase 2.
+## Overall Status: Steps 1–9 ALL DONE. Phase 2 (Telegram bridge) complete.
 
 Verified: office renders, character spawns with matrix effect, chat input appears, WebSocket connected, agent creation works.
 
@@ -142,13 +142,39 @@ Server handles `saveLayout`, `exportLayout`, `importLayout` WebSocket messages. 
 
 ---
 
-## Step 9: Telegram bridge — NOT STARTED
+## Step 9: Telegram bridge (Phase 2) — DONE
 
-Deferred to Phase 2 per the plan. The architecture supports it — `AgentManager.broadcast` can be extended to also push events to Telegram.
+Implemented as three changes:
+
+### `server/constants.py` — Telegram constants added
+- `TELEGRAM_MAX_MESSAGE_LENGTH = 4096`
+- 8 emoji constants for message formatting
+
+### `server/telegram_bridge.py` — New file
+- `TelegramBridge` class using takopi's `HttpBotClient` + `TelegramClient` + `poll_incoming()`
+- **Commands:** `/create`, `/close [id]`, `/agents`, `/select <id>`, `/help`, `/start`
+- **Per-user agent selection:** `_selected: dict[int, int]` maps `sender_id → agent_id`
+- **Broadcast formatting** with verbose/key-events modes:
+  - Always sent: `agentCreated`, `agentClosed`, `agentAnswer`, `agentToolPermission`, `subagentToolPermission`
+  - Verbose only: `agentStatus`, `agentToolStart/Done`, `subagentToolStart/Done`
+- Bot command registration via `set_my_commands()` on startup
+- Messages truncated to 4096 chars
+
+### `server/app.py` — Three changes
+1. `broadcast()` extended to call `telegram_bridge.on_broadcast()` (errors caught, never block WebSocket delivery)
+2. Module-level `telegram_bridge` variable
+3. Conditional startup in `lifespan()` — checks `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` env vars, reads `TELEGRAM_VERBOSE` (default `"1"`), starts bridge in task group, cleans up on shutdown
+
+### Env vars
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `TELEGRAM_BOT_TOKEN` | Yes (to enable) | — | Telegram Bot API token |
+| `TELEGRAM_CHAT_ID` | Yes (to enable) | — | Chat ID to poll/send |
+| `TELEGRAM_VERBOSE` | No | `"1"` | `"1"` = all events, `"0"` = key events only |
 
 ---
 
-## Verification Checklist (from plan)
+## Verification Checklist (Phase 1)
 
 | Check | Status |
 |-------|--------|
@@ -160,6 +186,21 @@ Deferred to Phase 2 per the plan. The architecture supports it — `AgentManager
 | Type prompt in chat input — tool animations | PASS — sent "Read server/constants.py", agent used Read tool, returned answer |
 | Agent completes — answer shown in chat | PASS — answer text displayed below chat input |
 | Edit layout — changes persist | PASS — painted floor tile, saved, reloaded page, change persisted |
+
+## Verification Checklist (Phase 2 — Telegram Bridge)
+
+| Check | Status |
+|-------|--------|
+| Server starts without Telegram env vars (bridge disabled) | PASS — no errors, bridge not started |
+| `from server.telegram_bridge import TelegramBridge` imports cleanly | PASS |
+| All three files syntax-check OK | PASS |
+| Server starts with `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` | NEEDS LIVE TEST |
+| `/help` in Telegram → bot replies with command list | NEEDS LIVE TEST |
+| `/create` → agent created + auto-selected | NEEDS LIVE TEST |
+| Plain text → prompt sent to selected agent | NEEDS LIVE TEST |
+| `/agents` → shows agent list | NEEDS LIVE TEST |
+| Browser + Telegram see same agents simultaneously | NEEDS LIVE TEST |
+| `TELEGRAM_VERBOSE=0` → only key events sent | NEEDS LIVE TEST |
 
 ---
 
@@ -176,6 +217,9 @@ uv venv --python 3.14 && uv pip install -e server
 uv run uvicorn server.app:app --host localhost --port 8765
 
 # 4. Open http://localhost:8765
+
+# 5. (Optional) Run with Telegram bridge
+TELEGRAM_BOT_TOKEN=... TELEGRAM_CHAT_ID=... uv run uvicorn server.app:app --host localhost --port 8765
 ```
 
 ---

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from .agent_manager import AgentManager
 from .asset_loader import load_furniture_assets
 from .layout_store import ensure_layout, write_layout, read_layout, watch_layout_file
+from .telegram_bridge import TelegramBridge
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -27,12 +29,13 @@ ASSETS_ROOT = PROJECT_ROOT / "webview-ui" / "public"
 # Shared state
 clients: set[WebSocket] = set()
 agent_manager: AgentManager | None = None
+telegram_bridge: TelegramBridge | None = None
 furniture_data: dict[str, Any] | None = None
 settings: dict[str, Any] = {"soundEnabled": True}
 
 
 async def broadcast(msg: dict[str, Any]) -> None:
-    """Send a message to all connected WebSocket clients."""
+    """Send a message to all connected WebSocket clients and the Telegram bridge."""
     data = json.dumps(msg)
     dead: list[WebSocket] = []
     for ws in clients:
@@ -43,11 +46,18 @@ async def broadcast(msg: dict[str, Any]) -> None:
     for ws in dead:
         clients.discard(ws)
 
+    # Notify Telegram bridge (errors logged, never block WebSocket delivery)
+    if telegram_bridge is not None:
+        try:
+            await telegram_bridge.on_broadcast(msg)
+        except Exception:
+            logger.exception("Telegram bridge broadcast error")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan — initialize shared state."""
-    global agent_manager, furniture_data
+    global agent_manager, telegram_bridge, furniture_data
 
     # Determine CWD for Claude — use current working directory
     cwd = Path.cwd().resolve()
@@ -72,8 +82,23 @@ async def lifespan(app: FastAPI):
         agent_manager.set_task_group(tg)
         # Watch layout file for external changes
         tg.start_soon(watch_layout_file, broadcast)
+
+        # Conditionally start Telegram bridge
+        tg_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+        tg_chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
+        if tg_token and tg_chat_id:
+            verbose = os.environ.get("TELEGRAM_VERBOSE", "1") != "0"
+            telegram_bridge = TelegramBridge(
+                tg_token, int(tg_chat_id), agent_manager, verbose=verbose,
+            )
+            tg.start_soon(telegram_bridge.run)
+
         yield
+
         # Cleanup
+        if telegram_bridge is not None:
+            await telegram_bridge.close()
+            telegram_bridge = None
         tg.cancel_scope.cancel()
         agent_manager = None
 
